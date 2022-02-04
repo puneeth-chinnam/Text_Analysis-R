@@ -1,0 +1,464 @@
+---
+title: "TwitterTextAnalysis"
+author: "SaiPuneeth Chinnam"
+date: "15/12/2021"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1. Computed word frequencies for each year. Exclude the stop words
+```{r}
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(janeaustenr)
+library(ggplot2)
+library(tidyr)
+library(igraph)
+library(ggraph)
+library(stopwords)
+
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+
+
+wordscount <-elon%>%
+unnest_tokens(word,tweet) %>%
+ count(date, word, sort=TRUE)
+  
+wordscount <- wordscount%>%
+  filter(date >2016)
+
+new_df = wordscount%>%
+filter(!(word %in% stopwords("en", source = "snowball")))
+
+
+Extrastopwords = c('just','yes','next','like','dont','make', 'get','ppathhole','much','also','can','soon','year')
+new_df = new_df%>%
+  filter(!(word %in% Extrastopwords))
+
+totalcount <- new_df %>% 
+  group_by(date) %>% 
+  summarize(total = sum(n))      #Calculating total words for respective year
+
+wordscount <- left_join(new_df,totalcount)
+
+# wordscount%>%
+#   filter(date > 2016)
+  
+
+
+
+freqbyrank <- wordscount %>% 
+  group_by(date) %>% 
+  mutate(rank = row_number(), 
+         `term frequency` = n/total) %>%
+  ungroup()
+
+freqbyrank
+
+```
+
+#2. Showing top 10 words (for each year) by the highest value of word frequency
+```{r}
+df17= freqbyrank%>%
+  filter(date == 2017)%>%
+  head(10)
+  
+df17
+
+
+df18= freqbyrank%>%
+  filter(date == 2018)%>%
+  head(10)
+df18
+
+  
+df19= freqbyrank%>%
+  filter(date == 2019)%>%
+  head(10)
+df19
+
+
+df20= freqbyrank%>%
+  filter(date == 2020)%>%
+  head(10)
+df20
+
+
+df21= freqbyrank%>%
+  filter(date == 2021)%>%
+  head(10)
+df21
+```
+
+#3. Plotting histogram of word frequencies for each year
+```{r}
+#Histogram for word frequencies for each year
+
+ggplot(wordscount, aes(n/total, fill = date)) +
+  geom_histogram(show.legend = FALSE) +
+  xlim(NA, 0.0009) +
+  facet_wrap(~date, ncol = 3, scales = "free_y")
+```
+
+#4. Using Zipf’s law and plotting log-log plots of word frequencies and rank for each year
+```{r}
+#Zipf's Law
+
+freqbyrank <- wordscount %>% 
+  group_by(date) %>% 
+  mutate(rank = row_number(), 
+         `term frequency` = n/total) %>%
+  ungroup()
+
+freqbyrank %>% 
+  ggplot(aes(rank, `term frequency`, color = date)) + 
+  geom_line(size = .5, alpha = 1, show.legend = FALSE) + 
+  scale_x_log10() +
+  scale_y_log10()
+
+lm(log10(`term frequency`) ~ log10(rank), data = freqbyrank) #To get intercept and slope
+
+
+ 
+freqbyrank %>% 
+  ggplot(aes(rank, `term frequency`, color = date)) + 
+  geom_abline(intercept = -0.9107, slope = -0.9753, #To plot with respect to line
+              color = "gray5", linetype = 2) +
+  geom_line(size = .5, alpha = 1, show.legend = TRUE) + 
+  scale_x_log10() +
+  scale_y_log10()
+
+```
+
+#5. Creating bigram network graphs for each year
+
+
+#Bigrams for year 2017
+```{r}
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(janeaustenr)
+library(ggplot2)
+library(tidyr)
+library(igraph)
+library(ggraph)
+library(stopwords)
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+
+elon <- elon%>%
+  filter(date == 2017)
+
+elonbigrams <- elon %>%
+  unnest_tokens(bigram, tweet, token = "ngrams", n = 2)
+
+elonbigrams %>%
+  count(bigram, sort = TRUE)
+
+# bigrams with stop words
+bigramsseparated <- elonbigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigramsfiltered <- bigramsseparated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigramcounts <- bigramsfiltered %>% 
+  count(word1, word2, sort = TRUE)
+
+
+# bigram as tf-idf
+bigramsunited <- bigramsfiltered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigramtfidf <- bigramsunited %>%
+  count(date, bigram) %>%
+  bind_tf_idf(bigram, date, n) %>%
+  arrange(desc(tf_idf))
+
+#bigramtfidf
+
+# Visualizing bigrams
+library(igraph)
+#bigramcounts
+
+bigramgraph <- bigramcounts %>%
+  filter(n > 2) %>%
+  graph_from_data_frame()
+
+set.seed(2017) 
+
+ggraph(bigramgraph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+
+set.seed(2017)
+```
+
+#Bigrams for year 2018
+```{r}
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+
+elon <- elon%>%
+  filter(date == 2018)
+
+elonbigrams <- elon %>%
+  unnest_tokens(bigram, tweet, token = "ngrams", n = 2)
+
+elonbigrams %>%
+  count(bigram, sort = TRUE)
+
+# bigrams with stop words
+bigramsseparated <- elonbigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigramsfiltered <- bigramsseparated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigramcounts <- bigramsfiltered %>% 
+  count(word1, word2, sort = TRUE)
+
+
+# bigram as tf-idf
+bigramsunited <- bigramsfiltered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigramtfidf <- bigramsunited %>%
+  count(date, bigram) %>%
+  bind_tf_idf(bigram, date, n) %>%
+  arrange(desc(tf_idf))
+
+#bigramtfidf
+
+# Visualizing bigrams
+library(igraph)
+#bigramcounts
+
+bigramgraph <- bigramcounts %>%
+  filter(n > 5) %>%
+  graph_from_data_frame()
+
+set.seed(201) 
+
+ggraph(bigramgraph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+
+set.seed(2018)
+```
+
+#Bigrams for year 2019
+```{r}
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+elon <- elon%>%
+  filter(date == 2019)
+
+elonbigrams <- elon %>%
+  unnest_tokens(bigram, tweet, token = "ngrams", n = 2)
+
+elonbigrams %>%
+  count(bigram, sort = TRUE)
+
+# bigrams with stop words
+bigramsseparated <- elonbigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigramsfiltered <- bigramsseparated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigramcounts <- bigramsfiltered %>% 
+  count(word1, word2, sort = TRUE)
+
+
+# bigram as tf-idf
+bigramsunited <- bigramsfiltered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigramtfidf <- bigramsunited %>%
+  count(date, bigram) %>%
+  bind_tf_idf(bigram, date, n) %>%
+  arrange(desc(tf_idf))
+
+#bigramtfidf
+
+# Visualizing bigrams
+library(igraph)
+#bigramcounts
+
+bigramgraph <- bigramcounts %>%
+  filter(n > 6) %>%
+  graph_from_data_frame()
+
+set.seed(2019) 
+
+ggraph(bigramgraph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+
+set.seed(2019)
+```
+#Bigrams for year 2020
+```{r}
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+elon <- elon%>%
+  filter(date == 2020)
+
+elonbigrams <- elon %>%
+  unnest_tokens(bigram, tweet, token = "ngrams", n = 2)
+
+elonbigrams %>%
+  count(bigram, sort = TRUE)
+
+# bigrams with stop words
+bigramsseparated <- elonbigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigramsfiltered <- bigramsseparated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigramcounts <- bigramsfiltered %>% 
+  count(word1, word2, sort = TRUE)
+
+
+# bigram as tf-idf
+bigramsunited <- bigramsfiltered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigramtfidf <- bigramsunited %>%
+  count(date, bigram) %>%
+  bind_tf_idf(bigram, date, n) %>%
+  arrange(desc(tf_idf))
+
+#bigramtfidf
+
+# Visualizing bigrams
+library(igraph)
+#bigramcounts
+
+bigramgraph <- bigramcounts %>%
+  filter(n > 6) %>%
+  graph_from_data_frame()
+
+set.seed(2017) 
+
+ggraph(bigramgraph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+
+set.seed(2017)
+```
+
+#Bigrams for year 2021
+```{r}
+elon <- read.csv("2021.csv")
+elon <- subset(elon, select=c(5,8))
+
+elon$tweet <- gsub("[^\x01-\x7F]", "", elon$tweet)  #To remove emojis from tweets
+elon$tweet = gsub("&amp", "", elon$tweet)           #To convert "&amp" to "&"
+elon$tweet <- gsub("[[:punct:]]", "", elon$tweet)   #To remove special characters from tweets
+elon$date = format(as.Date(elon$date, format="%Y-%m-%d %H:%M:%S"),"%Y") #converting timestampto YEAR only
+
+elon <- elon%>%
+  filter(date == 2021)
+
+elonbigrams <- elon %>%
+  unnest_tokens(bigram, tweet, token = "ngrams", n = 2)
+
+elonbigrams %>%
+  count(bigram, sort = TRUE)
+
+# bigrams with stop words
+bigramsseparated <- elonbigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigramsfiltered <- bigramsseparated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigramcounts <- bigramsfiltered %>% 
+  count(word1, word2, sort = TRUE)
+
+
+# bigram as tf-idf
+bigramsunited <- bigramsfiltered %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigramtfidf <- bigramsunited %>%
+  count(date, bigram) %>%
+  bind_tf_idf(bigram, date, n) %>%
+  arrange(desc(tf_idf))
+
+#bigramtfidf
+
+# Visualizing bigrams
+library(igraph)
+#bigramcounts
+
+bigramgraph <- bigramcounts %>%
+  filter(n > 1) %>%
+  graph_from_data_frame()
+
+set.seed(2017) 
+
+ggraph(bigramgraph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+
+set.seed(2017)
+```
+
