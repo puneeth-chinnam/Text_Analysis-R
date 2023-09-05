@@ -44,4 +44,7 @@ Performed data wrangling and text analysis on Elon Musk's tweets from 2012-2021:
 
 - Compared language usage and evolution across the years.
 
+![Bigram Network of text](https://github.com/puneeth-chinnam/TwitterTextAnalysis/assets/98235795/bb23b28a-c759-43e7-9921-4d11e0cb71c9)
+
+
 
